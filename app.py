@@ -7,19 +7,11 @@ import plotly.graph_objects as go
 # Configuración de la página
 st.set_page_config(page_title="Consultor de Inversión IA", layout="wide")
 
-st.title("📊 Consultor de Inversión con Buscador e IA")
-st.write("Analiza empresas del mercado en tiempo real y consulta los motivos de la recomendación.")
+st.title("📊 Consultor de Inversión Personal")
+st.write("Consulta oportunidades del mercado o busca libremente cualquier empresa para recibir el análisis de la IA.")
 
-# 1. Buscador de Empresas personalizable
-st.sidebar.header("🔍 Buscador de Activos")
-ticker_busqueda = st.sidebar.text_input("Introduce un Ticker (Ej: AAPL, TSLA, AMD, BABA):", value="").upper().strip()
-
-TICKERS_BASE = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "TSLA", "META"]
-
-if ticker_busqueda and ticker_busqueda not in TICKERS_BASE:
-    TICKERS_LISTA = [ticker_busqueda] + TICKERS_BASE
-else:
-    TICKERS_LISTA = TICKERS_BASE
+# Lista base para la tabla resumen de mercado
+TICKERS_MERCADO = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "TSLA", "META"]
 
 @st.cache_data(ttl=1800)
 def analizar_empresa(symbol):
@@ -27,7 +19,7 @@ def analizar_empresa(symbol):
         ticker_obj = yf.Ticker(symbol)
         df = ticker_obj.history(period="1y", interval="1d")
         
-        if df.empty or len(df) < 50:
+        if df.empty or len(df) < 30:
             return None
         
         # Aplanar columnas si yfinance devuelve MultiIndex
@@ -56,35 +48,37 @@ def analizar_empresa(symbol):
         
         if rsi_actual < 30:
             confianza += 25
-            motivos.append(f"🟢 **Sobrevendida (RSI {rsi_actual:.1f}):** El activo está en niveles muy bajos, lo que suele preceder un rebot a la alza.")
+            motivos.append(f"🟢 **Sobrevendida (RSI {rsi_actual:.1f}):** El activo cotiza en mínimos recientes, lo que históricamente favorece un rebote a la alza.")
         elif rsi_actual > 70:
             confianza -= 20
-            motivos.append(f"🔴 **Sobrecomprada (RSI {rsi_actual:.1f}):** El precio ha subido demasiado rápido y podría corregir a corto plazo.")
+            motivos.append(f"🔴 **Sobrecomprada (RSI {rsi_actual:.1f}):** Subida acelerada en poco tiempo; existe riesgo de corrección técnica.")
         else:
-            motivos.append(f"🟡 **RSI Neutro ({rsi_actual:.1f}):** Muestra estabilidad sin presión extrema de compra o venta.")
+            motivos.append(f"🟡 **RSI Equilibrado ({rsi_actual:.1f}):** El precio se mueve en rangos de consolidación sin presión extrema.")
             
         if precio_actual > sma20:
             confianza += 15
-            motivos.append("🟢 **Tendencia Corto Plazo:** Cotiza por encima de la media móvil de 20 días (fuerza compradora).")
+            motivos.append("🟢 **Fuerza a Corto Plazo:** El precio está por encima de la media de 20 días, indicando impulso comprador.")
         else:
-            motivos.append("🔴 **Debilidad Corto Plazo:** Cotiza por debajo de la media móvil de 20 días.")
+            motivos.append("🔴 **Debilidad a Corto Plazo:** Cotiza por debajo de su media de 20 días.")
 
         if sma20 > sma50:
             confianza += 10
-            motivos.append("🟢 **Cruce Alcista:** La tendencia de medio plazo es positiva (Media 20 > Media 50).")
+            motivos.append("🟢 **Estructura Alcista:** La tendencia de medio plazo es positiva (Media 20 > Media 50).")
+        else:
+            motivos.append("🔴 **Estructura Bajista:** Tendencia de medio plazo debilitada.")
             
         confianza = max(10, min(99, confianza))
         
         # Horizonte de inversión
         volatilidad = float(df['Close'].pct_change().std() * 100)
-        horizonte = "Corto Plazo (Trading)" if volatilidad > 2.2 else "Largo Plazo (Inversión)"
+        horizonte = "Corto Plazo (Trading)" if volatilidad > 2.0 else "Largo Plazo (Inversión)"
         
         # Precios Ideales
         precio_compra_ideal = precio_actual * 0.98
         precio_venta_ideal = precio_actual * (1.12 if horizonte.startswith("Largo") else 1.05)
         
         return {
-            "Symbol": symbol,
+            "Symbol": symbol.upper(),
             "Precio Actual": round(precio_actual, 2),
             "Confianza IA (%)": confianza,
             "Horizonte": horizonte,
@@ -96,15 +90,14 @@ def analizar_empresa(symbol):
     except Exception:
         return None
 
-# Procesar análisis
-resultados = []
-datos_empresas = {}
+# --- VISTA 1: TABLA RESUMEN DE MERCADO ---
+st.subheader("💡 Oportunidades Destacadas del Mercado")
 
-for ticker in TICKERS_LISTA:
+resultados_mercado = []
+for ticker in TICKERS_MERCADO:
     res = analizar_empresa(ticker)
     if res:
-        datos_empresas[ticker] = res
-        resultados.append({
+        resultados_mercado.append({
             "Empresa": res["Symbol"],
             "Precio ($)": res["Precio Actual"],
             "Confianza IA": f"{res['Confianza IA (%)']}%",
@@ -113,61 +106,71 @@ for ticker in TICKERS_LISTA:
             "Objetivo Venta ($)": res["Precio Venta Objetivo"]
         })
 
-df_resumen = pd.DataFrame(resultados)
-
-# --- VISTA 1: TABLA GENERAL DE EMPRESAS ---
-st.subheader("💡 Oportunidades del Mercado")
-st.dataframe(df_resumen, use_container_width=True)
+st.dataframe(pd.DataFrame(resultados_mercado), use_container_width=True)
 
 st.markdown("---")
 
-# --- VISTA 2: DETALLE Y DICTAMEN DE LA EMPRESA SELECCIONADA ---
-st.subheader("🔍 Análisis Detallado y Motivos de la Opinión")
+# --- VISTA 2: BUSCADOR LIBRE Y ANÁLISIS EXCLUSIVO ---
+st.subheader("🔍 Buscador Libre de Empresas")
+st.write("Escribe el ticker de cualquier empresa global (Ej: `TSLA`, `AMD`, `SAN.MC`, `PLTR`, `BABA`) para analizarla al instante:")
 
-empresa_seleccionada = st.selectbox(
-    "Selecciona una empresa para analizar a fondo:",
-    options=[r["Empresa"] for r in resultados],
-    index=0 if ticker_busqueda == "" else 0
-)
+col_input, col_select = st.columns([2, 2])
 
-if empresa_seleccionada and empresa_seleccionada in datos_empresas:
-    info = datos_empresas[empresa_seleccionada]
-    df_empresa = info["DF"]
+with col_input:
+    ticker_libre = st.text_input("Escribe cualquier símbolo/ticker:", value="").strip().upper()
+
+with col_select:
+    empresa_desplegable = st.selectbox(
+        "O selecciona una de la tabla destacada:",
+        options=["(Usar búsqueda de texto)"] + TICKERS_MERCADO
+    )
+
+# Determinar qué empresa analizar
+empresa_a_consultar = None
+if ticker_libre:
+    empresa_a_consultar = ticker_libre
+elif empresa_desplegable != "(Usar búsqueda de texto)":
+    empresa_a_consultar = empresa_desplegable
+else:
+    empresa_a_consultar = "AAPL" # Por defecto
+
+# Ejecutar análisis de la empresa seleccionada o buscada
+analisis = analizar_empresa(empresa_a_consultar)
+
+if analisis:
+    st.markdown(f"## 📌 Dictamen de IA para **{analisis['Symbol']}**")
     
-    # Métricas destacadas
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Precio Actual", f"${info['Precio Actual']}")
-    col2.metric("Confianza IA", f"{info['Confianza IA (%)']}%")
-    col3.metric("Precio Compra Ideal", f"${info['Precio Compra Ideal']}")
-    col4.metric("Precio Venta Objetivo", f"${info['Precio Venta Objetivo']}")
+    # Métricas principales
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Precio Actual", f"${analisis['Precio Actual']}")
+    c2.metric("Confianza IA", f"{analisis['Confianza IA (%)']}%")
+    c3.metric("Precio Compra Ideal", f"${analisis['Precio Compra Ideal']}")
+    c4.metric("Precio Venta Objetivo", f"${analisis['Precio Venta Objetivo']}")
     
-    st.info(f"📌 **Estrategia Recomendada:** {info['Horizonte']}")
+    st.info(f"🎯 **Perfil Sugerido:** {analisis['Horizonte']}")
     
-    # Módulo de Motivos de la Opinión
-    st.markdown("### 📝 Motivos y Fundamentos de la Opinión de la IA")
-    for motivo in info["Motivos"]:
-        st.markdown(f"- {motivo}")
+    # Resumen y motivos de la opinión
+    st.markdown("### 📝 Motivos de la Recomendación")
+    for m in analisis["Motivos"]:
+        st.markdown(f"- {m}")
+        
+    # Gráfico interactivo
+    st.markdown("### 📈 Gráfico Técnico e Indicadores")
+    df_chart = analisis["DF"]
     
-    # Gráfica interactiva de precios
-    st.markdown("### 📈 Gráfico de Precios e Indicadores")
     fig = go.Figure()
     fig.add_trace(go.Candlestick(
-        x=df_empresa.index,
-        open=df_empresa['Open'],
-        high=df_empresa['High'],
-        low=df_empresa['Low'],
-        close=df_empresa['Close'],
-        name="Precio"
+        x=df_chart.index, open=df_chart['Open'], high=df_chart['High'],
+        low=df_chart['Low'], close=df_chart['Close'], name="Precio"
     ))
-    fig.add_trace(go.Scatter(x=df_empresa.index, y=df_empresa['SMA_20'], name="Media Móvil 20", line=dict(color='orange')))
-    fig.add_trace(go.Scatter(x=df_empresa.index, y=df_empresa['SMA_50'], name="Media Móvil 50", line=dict(color='blue')))
+    fig.add_trace(go.Scatter(x=df_chart.index, y=df_chart['SMA_20'], name="Media Móvil 20", line=dict(color='orange')))
+    fig.add_trace(go.Scatter(x=df_chart.index, y=df_chart['SMA_50'], name="Media Móvil 50", line=dict(color='blue')))
     
     fig.update_layout(
-        title=f"Evolución Histórica y Medias Móviles de {empresa_seleccionada}",
-        xaxis_title="Fecha",
-        yaxis_title="Precio ($)",
-        template="plotly_dark",
-        height=500
+        title=f"Evolución Histórica de {analisis['Symbol']}",
+        xaxis_title="Fecha", yaxis_title="Precio ($)",
+        template="plotly_dark", height=450
     )
-    
     st.plotly_chart(fig, use_container_width=True)
+else:
+    st.error(f"❌ No se pudieron obtener datos para el ticker **'{empresa_a_consultar}'**. Asegúrate de que el código es correcto (ejemplo: `TSLA` para Tesla, `SAN.MC` para Banco Santander).")
